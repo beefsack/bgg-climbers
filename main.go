@@ -47,8 +47,12 @@ func (g Game) ToCSVRecord(fallbackRank int) []string {
 	if newRank == 0 {
 		newRank = fallbackRank
 	}
+	id := g.Old.ID
+	if id == "" {
+		id = g.New.ID
+	}
 	return []string{
-		g.Old.ID,
+		id,
 		g.Old.Name,
 		g.Old.Year,
 		fmt.Sprintf("%d", oldRank),
