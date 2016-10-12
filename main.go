@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"sort"
 	"strconv"
 )
 
@@ -34,11 +35,19 @@ type Record struct {
 	Thumbnail    string
 }
 
-type Game struct {
-	Old, New Record
+func (r Record) RankString() string {
+	if r.Rank == 0 {
+		return ""
+	}
+	return strconv.Itoa(r.Rank)
 }
 
-func (g Game) ToCSVRecord(fallbackRank int) []string {
+type Game struct {
+	Old, New   Record
+	ClimbScore float64
+}
+
+func (g Game) CalcClimbScore(fallbackRank int) float64 {
 	oldRank := g.Old.Rank
 	if oldRank == 0 {
 		oldRank = fallbackRank
@@ -47,6 +56,10 @@ func (g Game) ToCSVRecord(fallbackRank int) []string {
 	if newRank == 0 {
 		newRank = fallbackRank
 	}
+	return math.Log(float64(oldRank)) - math.Log(float64(newRank))
+}
+
+func (g Game) ToCSVRecord(fallbackRank int) []string {
 	id := g.Old.ID
 	if id == "" {
 		id = g.New.ID
@@ -55,7 +68,7 @@ func (g Game) ToCSVRecord(fallbackRank int) []string {
 		id,
 		g.Old.Name,
 		g.Old.Year,
-		fmt.Sprintf("%d", oldRank),
+		g.Old.RankString(),
 		g.Old.Average,
 		g.Old.BayesAverage,
 		g.Old.UsersRated,
@@ -63,15 +76,21 @@ func (g Game) ToCSVRecord(fallbackRank int) []string {
 		g.Old.Thumbnail,
 		g.New.Name,
 		g.New.Year,
-		fmt.Sprintf("%d", newRank),
+		g.New.RankString(),
 		g.New.Average,
 		g.New.BayesAverage,
 		g.New.UsersRated,
 		g.New.URL,
 		g.New.Thumbnail,
-		fmt.Sprintf("%f", math.Log(float64(oldRank))-math.Log(float64(newRank))),
+		fmt.Sprintf("%f", g.ClimbScore),
 	}
 }
+
+type Games []Game
+
+func (g Games) Len() int           { return len(g) }
+func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
+func (g Games) Less(i, j int) bool { return g[i].ClimbScore < g[j].ClimbScore }
 
 func ParseRecord(record []string) (Record, error) {
 	if len(record) <= SrcThumbnail {
@@ -195,7 +214,16 @@ func main() {
 		stderr.Fatalf("Unable to close '%s', %s", os.Args[2], err)
 	}
 
+	// Set climb score and build games slice
+	gamesSlice := Games{}
 	for _, g := range games {
+		g.ClimbScore = g.CalcClimbScore(maxRank)
+		gamesSlice = append(gamesSlice, g)
+	}
+	sort.Sort(sort.Reverse(gamesSlice))
+
+	// Output
+	for _, g := range gamesSlice {
 		if err := w.Write(g.ToCSVRecord(maxRank + 1)); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
