@@ -59,7 +59,7 @@ func (g Game) CalcClimbScore(fallbackRank int) float64 {
 	return math.Log(float64(oldRank)) - math.Log(float64(newRank))
 }
 
-func (g Game) ToCSVRecord(fallbackRank int) []string {
+func (g Game) ToCSVRecord() []string {
 	id := g.Old.ID
 	if id == "" {
 		id = g.New.ID
@@ -217,14 +217,14 @@ func main() {
 	// Set climb score and build games slice
 	gamesSlice := Games{}
 	for _, g := range games {
-		g.ClimbScore = g.CalcClimbScore(maxRank)
+		g.ClimbScore = g.CalcClimbScore(maxRank / 2)
 		gamesSlice = append(gamesSlice, g)
 	}
 	sort.Sort(sort.Reverse(gamesSlice))
 
 	// Output
 	for _, g := range gamesSlice {
-		if err := w.Write(g.ToCSVRecord(maxRank + 1)); err != nil {
+		if err := w.Write(g.ToCSVRecord()); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
 	}
