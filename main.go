@@ -64,11 +64,18 @@ func (g Game) ToCSVRecord() []string {
 	if id == "" {
 		id = g.New.ID
 	}
+	name := g.New.Name
+	if name == "" {
+		name = g.Old.Name
+	}
 	return []string{
 		id,
+		name,
+		fmt.Sprintf("%f", g.ClimbScore),
+		g.Old.RankString(),
+		g.New.RankString(),
 		g.Old.Name,
 		g.Old.Year,
-		g.Old.RankString(),
 		g.Old.Average,
 		g.Old.BayesAverage,
 		g.Old.UsersRated,
@@ -76,13 +83,11 @@ func (g Game) ToCSVRecord() []string {
 		g.Old.Thumbnail,
 		g.New.Name,
 		g.New.Year,
-		g.New.RankString(),
 		g.New.Average,
 		g.New.BayesAverage,
 		g.New.UsersRated,
 		g.New.URL,
 		g.New.Thumbnail,
-		fmt.Sprintf("%f", g.ClimbScore),
 	}
 }
 
@@ -122,9 +127,12 @@ func main() {
 	defer w.Flush()
 	if err := w.Write([]string{
 		"ID",
+		"Name",
+		"ln(Rank 1) - ln(Rank 2)",
+		"Rank 1",
+		"Rank 2",
 		"Name 1",
 		"Year 1",
-		"Rank 1",
 		"Average 1",
 		"Bayes average 1",
 		"Users rated 1",
@@ -132,13 +140,11 @@ func main() {
 		"Thumbnail 1",
 		"Name 2",
 		"Year 2",
-		"Rank 2",
 		"Average 2",
 		"Bayes average 2",
 		"Users rated 2",
 		"URL 2",
 		"Thumbnail 2",
-		"ln(Rank 1) - ln(Rank 2)",
 	}); err != nil {
 		stderr.Fatalf("Error writing header, %v", err)
 	}
