@@ -7,6 +7,7 @@ import (
 	"log"
 	"math"
 	"os"
+	"path"
 	"sort"
 	"strconv"
 )
@@ -21,6 +22,22 @@ const (
 	SrcUsersRated
 	SrcURL
 	SrcThumbnail
+)
+
+const (
+	RankWidth         = 4
+	AverageWidth      = 5
+	BayesAverageWidth = AverageWidth
+	UsersRatedWidth   = 6
+	EmptyStr          = "N/A"
+)
+
+var (
+	RankFormat         = fmt.Sprintf("%%%dd", RankWidth)
+	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
+	BayesAverageFormat = AverageFormat
+	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
+	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
 )
 
 type Record struct {
@@ -42,6 +59,27 @@ func (r Record) RankString() string {
 	return strconv.Itoa(r.Rank)
 }
 
+func (r Record) RankDescription() string {
+	if r.Rank == 0 {
+		return UnrankedText
+	}
+	return fmt.Sprintf(RankFormat, r.Rank)
+}
+
+func (r Record) Description() string {
+	return fmt.Sprintf(
+		fmt.Sprintf("%%s  %s  %s  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat),
+		r.RankDescription(),
+		StrOrNA(r.Average),
+		StrOrNA(r.BayesAverage),
+		StrOrNA(r.UsersRated),
+	)
+}
+
+func FileTitle(s string) string {
+	return path.Base(s[:len(s)-len(path.Ext(s))])
+}
+
 type Game struct {
 	Old, New   Record
 	ClimbScore float64
@@ -59,7 +97,44 @@ func (g Game) CalcClimbScore(fallbackRank int) float64 {
 	return math.Log(float64(oldRank)) - math.Log(float64(newRank))
 }
 
-func (g Game) ToCSVRecord() []string {
+func MaxLen(a, b string) int {
+	l := len(a)
+	if bl := len(b); bl > l {
+		l = bl
+	}
+	return l
+}
+
+func StrOrNA(s string) string {
+	if s == "" {
+		return EmptyStr
+	}
+	return s
+}
+
+func (g Game) Description(oldTitle, newTitle string) string {
+	titleLen := MaxLen(oldTitle, newTitle)
+	return fmt.Sprintf(
+		fmt.Sprintf(`Climber rating: %%f
+[c]
+%%%ds  %%%ds  %%%ds  %%%ds  %%%ds
+%%%ds  %%s
+%%%ds  %%s
+[/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
+		g.ClimbScore,
+		"",
+		"Rank",
+		"Ave",
+		"Bay",
+		"Num",
+		oldTitle,
+		g.Old.Description(),
+		newTitle,
+		g.New.Description(),
+	)
+}
+
+func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
 	id := g.Old.ID
 	if id == "" {
 		id = g.New.ID
@@ -71,6 +146,7 @@ func (g Game) ToCSVRecord() []string {
 	return []string{
 		id,
 		name,
+		g.Description(oldTitle, newTitle),
 		fmt.Sprintf("%f", g.ClimbScore),
 		g.Old.RankString(),
 		g.New.RankString(),
@@ -128,6 +204,7 @@ func main() {
 	if err := w.Write([]string{
 		"ID",
 		"Name",
+		"Description",
 		"ln(Rank 1) - ln(Rank 2)",
 		"Rank 1",
 		"Rank 2",
@@ -229,8 +306,10 @@ func main() {
 	sort.Sort(sort.Reverse(gamesSlice))
 
 	// Output
+	oldTitle := FileTitle(os.Args[1])
+	newTitle := FileTitle(os.Args[2])
 	for _, g := range gamesSlice {
-		if err := w.Write(g.ToCSVRecord()); err != nil {
+		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
 	}
