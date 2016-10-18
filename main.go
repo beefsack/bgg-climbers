@@ -117,16 +117,16 @@ func (g Game) Description(oldTitle, newTitle string) string {
 	return fmt.Sprintf(
 		fmt.Sprintf(`Climber rating: %%f
 [c]
-%%%ds  %%%ds  %%%ds  %%%ds  %%%ds
-%%%ds  %%s
+[BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]
+[BGCOLOR=#D8D8D8]%%%ds  %%s[/BGCOLOR]
 %%%ds  %%s
 [/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
 		g.ClimbScore,
 		"",
 		"Rank",
-		"Ave",
+		"Avg",
 		"Bay",
-		"Num",
+		"#Rtg",
 		oldTitle,
 		g.Old.Description(),
 		newTitle,
