@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"math"
 	"os"
 	"path"
 	"sort"
@@ -94,7 +93,7 @@ func (g Game) CalcClimbScore(fallbackRank int) float64 {
 	if newRank == 0 {
 		newRank = fallbackRank
 	}
-	return math.Log(float64(oldRank)) - math.Log(float64(newRank))
+	return float64(oldRank) / float64(newRank)
 }
 
 func MaxLen(a, b string) int {
@@ -205,7 +204,7 @@ func main() {
 		"ID",
 		"Name",
 		"Description",
-		"ln(Rank 1) - ln(Rank 2)",
+		"Rank 1 / Rank 2",
 		"Rank 1",
 		"Rank 2",
 		"Name 1",
