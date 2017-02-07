@@ -308,8 +308,8 @@ func main() {
 	oldTitle := FileTitle(os.Args[1])
 	newTitle := FileTitle(os.Args[2])
 	for _, g := range gamesSlice {
-		if g.New.Rank == 0 {
-			// Ignore games which lost their rank
+		if g.Old.Rank == 0 || g.New.Rank == 0 {
+			// Ignore games which gained or lost their rank
 			continue
 		}
 		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
