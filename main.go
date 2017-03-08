@@ -312,6 +312,9 @@ func main() {
 			// Ignore games which gained or lost their rank
 			continue
 		}
+		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil && ur < 100 {
+			continue
+		}
 		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
