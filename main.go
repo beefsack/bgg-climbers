@@ -80,8 +80,8 @@ func FileTitle(s string) string {
 }
 
 type Game struct {
-	Old, New          Record
-	Delta, ClimbScore float64
+	Old, New   Record
+	ClimbScore float64
 }
 
 func (g Game) CalcClimbScore(fallbackRank int) float64 {
@@ -111,23 +111,15 @@ func StrOrNA(s string) string {
 	return s
 }
 
-func (g Game) DeltaString() string {
-	arrow := "↗"
-	color := "009900"
-	if g.ClimbScore < 1 {
-		arrow = "↘"
-		color = "990000"
-	}
+func (g Game) ClimbScoreString() string {
 	return fmt.Sprintf(
-		"[size=18][b][COLOR=#%s]%s %s[/COLOR][/b][/size]",
-		color,
-		arrow,
-		g.DeltaPercString(),
+		"[size=18][b][COLOR=#009900]↗ %s[/COLOR][/b][/size]",
+		g.ClimbScorePercString(),
 	)
 }
 
-func (g Game) DeltaPercString() string {
-	return fmt.Sprintf("%.2f%%", (g.Delta-1)*100)
+func (g Game) ClimbScorePercString() string {
+	return fmt.Sprintf("%.2f%%", (g.ClimbScore-1)*100)
 }
 
 func (g Game) Description(oldTitle, newTitle string) string {
@@ -139,7 +131,7 @@ func (g Game) Description(oldTitle, newTitle string) string {
 [BGCOLOR=#D8D8D8]%%%ds  %%s[/BGCOLOR]
 %%%ds  %%s
 [/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
-		g.DeltaString(),
+		g.ClimbScoreString(),
 		"",
 		"Rank",
 		"Avg",
@@ -165,7 +157,6 @@ func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
 		id,
 		name,
 		g.Description(oldTitle, newTitle),
-		fmt.Sprintf("%f", g.Delta),
 		fmt.Sprintf("%f", g.ClimbScore),
 		g.Old.RankString(),
 		g.New.RankString(),
@@ -190,7 +181,7 @@ type Games []Game
 
 func (g Games) Len() int           { return len(g) }
 func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
-func (g Games) Less(i, j int) bool { return g[i].Delta < g[j].Delta }
+func (g Games) Less(i, j int) bool { return g[i].ClimbScore < g[j].ClimbScore }
 
 func ParseRecord(record []string) (Record, error) {
 	if len(record) <= SrcThumbnail {
@@ -320,10 +311,6 @@ func main() {
 	gamesSlice := Games{}
 	for _, g := range games {
 		g.ClimbScore = g.CalcClimbScore(maxRank / 2)
-		g.Delta = g.ClimbScore
-		if g.Delta > 0 && g.Delta < 1 {
-			g.Delta = 1 / g.Delta
-		}
 		gamesSlice = append(gamesSlice, g)
 	}
 	sort.Sort(sort.Reverse(gamesSlice))
