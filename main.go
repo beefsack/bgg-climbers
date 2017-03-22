@@ -9,6 +9,7 @@ import (
 	"path"
 	"sort"
 	"strconv"
+	"strings"
 )
 
 const (
@@ -29,6 +30,7 @@ const (
 	BayesAverageWidth = AverageWidth
 	UsersRatedWidth   = 6
 	EmptyStr          = "N/A"
+	MaxDisplaced      = 1
 )
 
 var (
@@ -80,8 +82,8 @@ func FileTitle(s string) string {
 }
 
 type Game struct {
-	Old, New          Record
-	Delta, ClimbScore float64
+	Old, New   Record
+	ClimbScore float64
 }
 
 func (g Game) CalcClimbScore(fallbackRank int) float64 {
@@ -111,26 +113,61 @@ func StrOrNA(s string) string {
 	return s
 }
 
-func (g Game) DeltaString() string {
-	arrow := "↗"
-	color := "009900"
-	if g.ClimbScore < 1 {
-		arrow = "↘"
-		color = "990000"
-	}
+func (g Game) RatingString() string {
 	return fmt.Sprintf(
-		"[size=18][b][COLOR=#%s]%s %s[/COLOR][/b][/size]",
-		color,
-		arrow,
-		g.DeltaPercString(),
+		"[size=18][b][COLOR=#009900]↗ %s[/COLOR][/b][/size]",
+		g.RatingPercString(),
 	)
 }
 
-func (g Game) DeltaPercString() string {
-	return fmt.Sprintf("%.2f%%", (g.Delta-1)*100)
+func (g Game) RatingPercString() string {
+	return fmt.Sprintf("%.2f%%", (g.ClimbScore-1)*100)
 }
 
-func (g Game) Description(oldTitle, newTitle string) string {
+func DisplacedString(displaced []Game) string {
+	if len(displaced) == 0 {
+		return ""
+	}
+
+	links := []string{}
+	for i, d := range displaced {
+		if i == MaxDisplaced {
+			break
+		}
+		links = append(links, DisplacedStringLink(d))
+	}
+
+	othersStr := ""
+	if l := len(displaced); l > MaxDisplaced {
+		others := l - MaxDisplaced
+		suffix := ""
+		if others > 1 {
+			suffix = "s"
+		}
+		othersStr = fmt.Sprintf(
+			" and %d other%s",
+			others,
+			suffix,
+		)
+	}
+
+	return fmt.Sprintf(
+		"Displaced %s%s",
+		strings.Join(links, ", "),
+		othersStr,
+	)
+}
+
+func DisplacedStringLink(displaced Game) string {
+	return fmt.Sprintf(
+		"[thing=%s][/thing] (%d -> %d)",
+		displaced.New.ID,
+		displaced.Old.Rank,
+		displaced.New.Rank,
+	)
+}
+
+func (g Game) Description(oldTitle, newTitle string, displaced []Game) string {
 	titleLen := MaxLen(oldTitle, newTitle)
 	return fmt.Sprintf(
 		fmt.Sprintf(`%%s
@@ -138,8 +175,9 @@ func (g Game) Description(oldTitle, newTitle string) string {
 [BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]
 [BGCOLOR=#D8D8D8]%%%ds  %%s[/BGCOLOR]
 %%%ds  %%s
-[/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
-		g.DeltaString(),
+[/c]
+%%s`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
+		g.RatingString(),
 		"",
 		"Rank",
 		"Avg",
@@ -149,10 +187,11 @@ func (g Game) Description(oldTitle, newTitle string) string {
 		g.Old.Description(),
 		newTitle,
 		g.New.Description(),
+		DisplacedString(displaced),
 	)
 }
 
-func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
+func (g Game) ToCSVRecord(oldTitle, newTitle string, displaced []Game) []string {
 	id := g.Old.ID
 	if id == "" {
 		id = g.New.ID
@@ -164,8 +203,7 @@ func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
 	return []string{
 		id,
 		name,
-		g.Description(oldTitle, newTitle),
-		fmt.Sprintf("%f", g.Delta),
+		g.Description(oldTitle, newTitle, displaced),
 		fmt.Sprintf("%f", g.ClimbScore),
 		g.Old.RankString(),
 		g.New.RankString(),
@@ -186,11 +224,21 @@ func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
 	}
 }
 
-type Games []Game
+type GamesByClimbScore []Game
 
-func (g Games) Len() int           { return len(g) }
-func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
-func (g Games) Less(i, j int) bool { return g[i].Delta < g[j].Delta }
+func (g GamesByClimbScore) Len() int           { return len(g) }
+func (g GamesByClimbScore) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
+func (g GamesByClimbScore) Less(i, j int) bool { return g[i].ClimbScore < g[j].ClimbScore }
+
+type GamesByUsersRated []Game
+
+func (g GamesByUsersRated) Len() int      { return len(g) }
+func (g GamesByUsersRated) Swap(i, j int) { g[i], g[j] = g[j], g[i] }
+func (g GamesByUsersRated) Less(i, j int) bool {
+	iur, _ := strconv.Atoi(g[i].New.UsersRated)
+	jur, _ := strconv.Atoi(g[j].New.UsersRated)
+	return iur < jur
+}
 
 func ParseRecord(record []string) (Record, error) {
 	if len(record) <= SrcThumbnail {
@@ -317,14 +365,14 @@ func main() {
 	}
 
 	// Set climb score and build games slice
-	gamesSlice := Games{}
+	gamesSlice := GamesByClimbScore{}
+	gamesByOldRank := map[int]Game{}
 	for _, g := range games {
 		g.ClimbScore = g.CalcClimbScore(maxRank / 2)
-		g.Delta = g.ClimbScore
-		if g.Delta > 0 && g.Delta < 1 {
-			g.Delta = 1 / g.Delta
-		}
 		gamesSlice = append(gamesSlice, g)
+		if g.Old.Rank != 0 {
+			gamesByOldRank[g.Old.Rank] = g
+		}
 	}
 	sort.Sort(sort.Reverse(gamesSlice))
 
@@ -339,7 +387,16 @@ func main() {
 		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil || ur < 100 {
 			continue
 		}
-		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
+		// Find out if it displaced any games.
+		displaced := []Game{}
+		for r := g.New.Rank + 1; r <= g.Old.Rank; r++ {
+			og := gamesByOldRank[r]
+			if og.New.Rank != 0 && og.New.Rank > g.New.Rank && og.New.Rank > og.Old.Rank {
+				displaced = append(displaced, og)
+			}
+		}
+		sort.Sort(sort.Reverse(GamesByUsersRated(displaced)))
+		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle, displaced)); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
 	}
