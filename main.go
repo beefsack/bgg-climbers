@@ -80,8 +80,8 @@ func FileTitle(s string) string {
 }
 
 type Game struct {
-	Old, New   Record
-	ClimbScore float64
+	Old, New          Record
+	Delta, ClimbScore float64
 }
 
 func (g Game) CalcClimbScore(fallbackRank int) float64 {
@@ -111,16 +111,35 @@ func StrOrNA(s string) string {
 	return s
 }
 
+func (g Game) DeltaString() string {
+	arrow := "↗"
+	color := "009900"
+	if g.ClimbScore < 1 {
+		arrow = "↘"
+		color = "990000"
+	}
+	return fmt.Sprintf(
+		"[size=18][b][COLOR=#%s]%s %s[/COLOR][/b][/size]",
+		color,
+		arrow,
+		g.DeltaPercString(),
+	)
+}
+
+func (g Game) DeltaPercString() string {
+	return fmt.Sprintf("%.2f%%", (g.Delta-1)*100)
+}
+
 func (g Game) Description(oldTitle, newTitle string) string {
 	titleLen := MaxLen(oldTitle, newTitle)
 	return fmt.Sprintf(
-		fmt.Sprintf(`Climber rating: %%f
+		fmt.Sprintf(`%%s
 [c]
 [BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]
 [BGCOLOR=#D8D8D8]%%%ds  %%s[/BGCOLOR]
 %%%ds  %%s
 [/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
-		g.ClimbScore,
+		g.DeltaString(),
 		"",
 		"Rank",
 		"Avg",
@@ -146,6 +165,7 @@ func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
 		id,
 		name,
 		g.Description(oldTitle, newTitle),
+		fmt.Sprintf("%f", g.Delta),
 		fmt.Sprintf("%f", g.ClimbScore),
 		g.Old.RankString(),
 		g.New.RankString(),
@@ -170,7 +190,7 @@ type Games []Game
 
 func (g Games) Len() int           { return len(g) }
 func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
-func (g Games) Less(i, j int) bool { return g[i].ClimbScore < g[j].ClimbScore }
+func (g Games) Less(i, j int) bool { return g[i].Delta < g[j].Delta }
 
 func ParseRecord(record []string) (Record, error) {
 	if len(record) <= SrcThumbnail {
@@ -300,6 +320,10 @@ func main() {
 	gamesSlice := Games{}
 	for _, g := range games {
 		g.ClimbScore = g.CalcClimbScore(maxRank / 2)
+		g.Delta = g.ClimbScore
+		if g.Delta > 0 && g.Delta < 1 {
+			g.Delta = 1 / g.Delta
+		}
 		gamesSlice = append(gamesSlice, g)
 	}
 	sort.Sort(sort.Reverse(gamesSlice))
@@ -312,7 +336,7 @@ func main() {
 			// Ignore games which gained or lost their rank
 			continue
 		}
-		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil && ur < 100 {
+		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil || ur < 100 {
 			continue
 		}
 		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
