@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/csv"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -217,8 +218,13 @@ func ParseRecord(record []string) (Record, error) {
 }
 
 func main() {
+	var minRatings int
+	flag.IntVar(&minRatings, "minratings", 100, "minimum ratings required")
+	flag.Parse()
+	args := flag.Args()
+
 	stderr := log.New(os.Stderr, "", 0)
-	if len(os.Args) != 3 {
+	if len(args) != 2 {
 		stderr.Fatalf("Expected two CSV file arguments to compare")
 	}
 	w := csv.NewWriter(os.Stdout)
@@ -252,9 +258,9 @@ func main() {
 	maxRank := 0
 
 	// Parse old file
-	oldF, err := os.Open(os.Args[1])
+	oldF, err := os.Open(args[0])
 	if err != nil {
-		stderr.Fatalf("Unable to open '%s', %s", os.Args[1], err)
+		stderr.Fatalf("Unable to open '%s', %s", args[0], err)
 	}
 	oldR := csv.NewReader(oldF)
 	hasReadHeader := false
@@ -263,7 +269,7 @@ func main() {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			stderr.Fatalf("Unable to read line from '%s', %s", os.Args[1], err)
+			stderr.Fatalf("Unable to read line from '%s', %s", args[0], err)
 		}
 		if !hasReadHeader {
 			hasReadHeader = true
@@ -282,13 +288,13 @@ func main() {
 		games[record[SrcID]] = g
 	}
 	if err := oldF.Close(); err != nil {
-		stderr.Fatalf("Unable to close '%s', %s", os.Args[1], err)
+		stderr.Fatalf("Unable to close '%s', %s", args[0], err)
 	}
 
 	// Parse new file
-	newF, err := os.Open(os.Args[2])
+	newF, err := os.Open(args[1])
 	if err != nil {
-		stderr.Fatalf("Unable to open '%s', %s", os.Args[2], err)
+		stderr.Fatalf("Unable to open '%s', %s", args[1], err)
 	}
 	newR := csv.NewReader(newF)
 	hasReadHeader = false
@@ -297,7 +303,7 @@ func main() {
 		if err == io.EOF {
 			break
 		} else if err != nil {
-			stderr.Fatalf("Unable to read line from '%s', %s", os.Args[2], err)
+			stderr.Fatalf("Unable to read line from '%s', %s", args[1], err)
 		}
 		if !hasReadHeader {
 			hasReadHeader = true
@@ -316,7 +322,7 @@ func main() {
 		games[record[SrcID]] = g
 	}
 	if err := newF.Close(); err != nil {
-		stderr.Fatalf("Unable to close '%s', %s", os.Args[2], err)
+		stderr.Fatalf("Unable to close '%s', %s", args[1], err)
 	}
 
 	// Set climb score and build games slice
@@ -328,14 +334,14 @@ func main() {
 	sort.Sort(sort.Reverse(gamesSlice))
 
 	// Output
-	oldTitle := FileTitle(os.Args[1])
-	newTitle := FileTitle(os.Args[2])
+	oldTitle := FileTitle(args[0])
+	newTitle := FileTitle(args[1])
 	for _, g := range gamesSlice {
 		if g.Old.Rank == 0 || g.New.Rank == 0 {
 			// Ignore games which gained or lost their rank
 			continue
 		}
-		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil || ur < 100 {
+		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil || ur < minRatings {
 			continue
 		}
 		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
