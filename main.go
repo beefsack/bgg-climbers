@@ -112,14 +112,26 @@ func StrOrNA(s string) string {
 }
 
 func (g Game) ClimbScoreString() string {
+	arrow := "↗"
+	color := "009900"
+	if g.ClimbScore < 1 {
+		arrow = "↘"
+		color = "990000"
+	}
 	return fmt.Sprintf(
-		"[size=18][b][COLOR=#009900]↗ %s[/COLOR][/b][/size]",
+		"[size=18][b][COLOR=#%s]%s %s[/COLOR][/b][/size]",
+		color,
+		arrow,
 		g.ClimbScorePercString(),
 	)
 }
 
 func (g Game) ClimbScorePercString() string {
-	return fmt.Sprintf("%.2f%%", (g.ClimbScore-1)*100)
+	absClimbScore := g.ClimbScore
+	if g.ClimbScore < 1 {
+		absClimbScore = 1 / g.ClimbScore
+	}
+	return fmt.Sprintf("%.2f%%", (absClimbScore-1)*100)
 }
 
 func (g Game) Description(oldTitle, newTitle string) string {
