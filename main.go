@@ -341,7 +341,7 @@ func main() {
 			// Ignore games which gained or lost their rank
 			continue
 		}
-		if ur, err := strconv.Atoi(g.New.UsersRated); err != nil || ur < minRatings {
+		if ur, err := strconv.Atoi(g.Old.UsersRated); err != nil || ur < minRatings {
 			continue
 		}
 		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
