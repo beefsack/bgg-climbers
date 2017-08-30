@@ -128,11 +128,11 @@ func (g Game) ClimbScoreString() string {
 }
 
 func (g Game) ClimbScorePercString() string {
-	absClimbScore := g.ClimbScore
-	if g.ClimbScore < 1 {
-		absClimbScore = 1 / g.ClimbScore
+	perc := g.ClimbScore
+	if perc > 1 {
+		perc = 1 / perc
 	}
-	return fmt.Sprintf("%.2f%%", (absClimbScore-1)*100)
+	return fmt.Sprintf("%.2f%%", (1-perc)*100)
 }
 
 func (g Game) Description(oldTitle, newTitle string) string {
