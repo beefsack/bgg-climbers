@@ -8,10 +8,14 @@ import (
 	"log"
 	"os"
 	"path"
+	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
+	"time"
 )
 
+// Source file field offsets.
 const (
 	SrcID = iota
 	SrcName
@@ -24,22 +28,96 @@ const (
 	SrcThumbnail
 )
 
+// FileDateFormat is the format of the date in the file name.
+const FileDateFormat = "2006-01-02"
+
+// Formatting constants.
 const (
-	RankWidth         = 4
+	RankWidth         = 5
 	AverageWidth      = 5
 	BayesAverageWidth = AverageWidth
 	UsersRatedWidth   = 6
+	ChangeWidth       = 8
+	ColorTagWidth     = 23
 	EmptyStr          = "N/A"
 )
 
+// Formatting variables.
 var (
-	RankFormat         = fmt.Sprintf("%%%dd", RankWidth)
+	RankFormat         = fmt.Sprintf("%%%ds", RankWidth)
 	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
 	BayesAverageFormat = AverageFormat
 	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
+	ChangeFormat       = fmt.Sprintf("%%%ds", ChangeWidth+ColorTagWidth)
 	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
+	TitleLen           = len(FileDateFormat)
 )
 
+// File is a parsed file.
+type File struct {
+	Path    string
+	Date    time.Time
+	MaxRank int
+	Records []Record
+}
+
+// ParseFileDate parses the date of the file from the filename.
+func ParseFileDate(p string) (time.Time, error) {
+	return time.Parse(FileDateFormat, strings.TrimSuffix(path.Base(p), ".csv"))
+}
+
+// ParseFile parses a bgg-ranking-historicals file.
+func ParseFile(p string) (File, error) {
+	f := File{
+		Path: p,
+	}
+
+	date, err := ParseFileDate(p)
+	if err != nil {
+		return f, fmt.Errorf("Unable parse date from '%s', %s", p, err)
+	}
+	f.Date = date
+
+	handle, err := os.Open(p)
+	if err != nil {
+		return f, fmt.Errorf("Unable to open '%s', %s", p, err)
+	}
+	defer handle.Close()
+
+	csvReader := csv.NewReader(handle)
+	hasReadHeader := false
+	for {
+		record, err := csvReader.Read()
+		if err == io.EOF {
+			break
+		} else if err != nil {
+			return f, fmt.Errorf("Unable to read line from '%s', %s", p, err)
+		}
+		if !hasReadHeader {
+			hasReadHeader = true
+			continue
+		}
+
+		if len(record) <= SrcThumbnail {
+			continue
+		}
+
+		parsedRecord, err := ParseRecord(record)
+		if err != nil {
+			return f, fmt.Errorf("Unable to parse record, %s", err)
+		}
+
+		if parsedRecord.Rank > f.MaxRank {
+			f.MaxRank = parsedRecord.Rank
+		}
+
+		f.Records = append(f.Records, parsedRecord)
+	}
+
+	return f, nil
+}
+
+// Record is a record in a bgg-ranking-historicals file.
 type Record struct {
 	ID           string
 	Name         string
@@ -52,6 +130,8 @@ type Record struct {
 	Thumbnail    string
 }
 
+// RankString converts a BGG rank to a string, using an empty string to
+// represent no rank.
 func (r Record) RankString() string {
 	if r.Rank == 0 {
 		return ""
@@ -59,52 +139,33 @@ func (r Record) RankString() string {
 	return strconv.Itoa(r.Rank)
 }
 
-func (r Record) RankDescription() string {
-	if r.Rank == 0 {
-		return UnrankedText
-	}
-	return fmt.Sprintf(RankFormat, r.Rank)
-}
-
+// Description outputs the record rank details.
 func (r Record) Description() string {
 	return fmt.Sprintf(
-		fmt.Sprintf("%%s  %s  %s  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat),
-		r.RankDescription(),
+		fmt.Sprintf("%%s  %s  %s  %s  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		StrOrNA(r.RankString()),
 		StrOrNA(r.Average),
 		StrOrNA(r.BayesAverage),
 		StrOrNA(r.UsersRated),
 	)
 }
 
-func FileTitle(s string) string {
-	return path.Base(s[:len(s)-len(path.Ext(s))])
-}
-
+// A Game is a collection of GameRecords
 type Game struct {
-	Old, New   Record
-	ClimbScore float64
+	Records []GameRecord
 }
 
-func (g Game) CalcClimbScore(fallbackRank int) float64 {
-	oldRank := g.Old.Rank
-	if oldRank == 0 {
-		oldRank = fallbackRank
-	}
-	newRank := g.New.Rank
-	if newRank == 0 {
-		newRank = fallbackRank
-	}
+// ClimbScore is a ratio of rank movement in this game's most recent period.
+func (g Game) ClimbScore() float64 {
+	return ClimbScore(g.Records[1].Rank, g.Records[0].Rank)
+}
+
+// ClimbScore is a ratio of rank movement.
+func ClimbScore(oldRank, newRank int) float64 {
 	return float64(oldRank) / float64(newRank)
 }
 
-func MaxLen(a, b string) int {
-	l := len(a)
-	if bl := len(b); bl > l {
-		l = bl
-	}
-	return l
-}
-
+// StrOrNA replaces empty strings with "N/A"
 func StrOrNA(s string) string {
 	if s == "" {
 		return EmptyStr
@@ -112,97 +173,137 @@ func StrOrNA(s string) string {
 	return s
 }
 
-func (g Game) ClimbScoreString() string {
-	arrow := "↗"
-	color := "009900"
-	if g.ClimbScore < 1 {
+// ClimbScoreString is the climb score as a percentage with color and an arrow.
+func ClimbScoreString(climbScore float64) string {
+	arrow := "-"
+	color := "555555"
+	if climbScore > 1 {
+		arrow = "↗"
+		color = "009900"
+	} else if climbScore < 1 {
 		arrow = "↘"
 		color = "990000"
 	}
 	return fmt.Sprintf(
-		"[size=18][b][COLOR=#%s]%s %s[/COLOR][/b][/size]",
+		"[COLOR=#%s]%s %s[/COLOR]",
 		color,
 		arrow,
-		g.ClimbScorePercString(),
+		ClimbScorePercString(climbScore),
 	)
 }
 
-func (g Game) ClimbScorePercString() string {
-	perc := g.ClimbScore
+// ClimbScorePercString represents the climb ratio as a percentage.
+func ClimbScorePercString(climbScore float64) string {
+	perc := climbScore
 	if perc > 1 {
 		perc = 1 / perc
 	}
 	return fmt.Sprintf("%.2f%%", (1-perc)*100)
 }
 
-func (g Game) Description(oldTitle, newTitle string) string {
-	titleLen := MaxLen(oldTitle, newTitle)
-	return fmt.Sprintf(
-		fmt.Sprintf(`%%s
+// DescTableTitle is the title row of the table.
+var DescTableTitle = fmt.Sprintf(
+	fmt.Sprintf(
+		"[BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]",
+		TitleLen,
+		RankWidth,
+		AverageWidth,
+		BayesAverageWidth,
+		UsersRatedWidth,
+		ChangeWidth,
+	),
+	"",
+	"Rank",
+	"Avg",
+	"Bay",
+	"#Rtg",
+	"Chng",
+)
+
+// Description outputs a climb score and table of historicals.
+func (g Game) Description() string {
+	return fmt.Sprintf(`[size=18][b]%s[/b][/size]
 [c]
-[BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]
-[BGCOLOR=#D8D8D8]%%%ds  %%s[/BGCOLOR]
-%%%ds  %%s
-[/c]`, titleLen, RankWidth, AverageWidth, BayesAverageWidth, UsersRatedWidth, titleLen, titleLen),
-		g.ClimbScoreString(),
-		"",
-		"Rank",
-		"Avg",
-		"Bay",
-		"#Rtg",
-		oldTitle,
-		g.Old.Description(),
-		newTitle,
-		g.New.Description(),
+%s
+%s
+[/c]`,
+		ClimbScoreString(ClimbScore(g.Records[1].Rank, g.Records[0].Rank)),
+		DescTableTitle,
+		g.DescriptionRows(),
 	)
 }
 
-func (g Game) ToCSVRecord(oldTitle, newTitle string) []string {
-	id := g.Old.ID
-	if id == "" {
-		id = g.New.ID
+// DescriptionRows outputs the rows in the Description table
+func (g Game) DescriptionRows() string {
+	l := len(g.Records)
+	lines := make([]string, l)
+	for i := 0; i < l; i++ {
+		lines[i] = g.DescriptionRow(l - i - 1)
 	}
-	name := g.New.Name
-	if name == "" {
-		name = g.Old.Name
+	return strings.Join(lines, "\n")
+}
+
+// DescriptionRow outputs a specific row in the Description table
+func (g Game) DescriptionRow(offset int) string {
+	record := g.Records[offset]
+	row := fmt.Sprintf(
+		fmt.Sprintf("%%s  %s  %s  %s  %s  %s", RankFormat, AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		record.Date.Format(FileDateFormat),
+		StrOrNA(record.Record.RankString()),
+		StrOrNA(record.Record.Average),
+		StrOrNA(record.Record.BayesAverage),
+		StrOrNA(record.Record.UsersRated),
+		g.ClimbScoreString(offset),
+	)
+	if (len(g.Records)-offset)%2 == 1 {
+		row = fmt.Sprintf("[BGCOLOR=#D8D8D8]%s[/BGCOLOR]", row)
 	}
+	if offset == 0 {
+		row = fmt.Sprintf("[b]%s[/b]", row)
+	}
+	return row
+}
+
+// ClimbScoreString generates the climb score for an offset and outputs it.
+func (g Game) ClimbScoreString(offset int) string {
+	if offset == len(g.Records)-1 {
+		// Output the COLOR tag anyway for alignment purposes.
+		return "[COLOR=#000000][/COLOR]"
+	}
+	return ClimbScoreString(ClimbScore(g.Records[offset+1].Record.Rank, g.Records[offset].Record.Rank))
+}
+
+// ToCSVRecord outputs a CSV row for output.
+func (g Game) ToCSVRecord() []string {
 	return []string{
-		id,
-		name,
-		g.Description(oldTitle, newTitle),
-		fmt.Sprintf("%f", g.ClimbScore),
-		g.Old.RankString(),
-		g.New.RankString(),
-		g.Old.Name,
-		g.Old.Year,
-		g.Old.Average,
-		g.Old.BayesAverage,
-		g.Old.UsersRated,
-		g.Old.URL,
-		g.Old.Thumbnail,
-		g.New.Name,
-		g.New.Year,
-		g.New.Average,
-		g.New.BayesAverage,
-		g.New.UsersRated,
-		g.New.URL,
-		g.New.Thumbnail,
+		g.Records[0].Record.ID,
+		g.Records[0].Record.Name,
+		g.Description(),
+		fmt.Sprintf("%f", g.ClimbScore()),
 	}
 }
 
+// A GameRecord is a record with the date included.
+type GameRecord struct {
+	Record
+	Date time.Time
+}
+
+// Games is a sortable collection of Game structs.
 type Games []Game
 
 func (g Games) Len() int           { return len(g) }
 func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
-func (g Games) Less(i, j int) bool { return g[i].ClimbScore < g[j].ClimbScore }
+func (g Games) Less(i, j int) bool { return g[i].ClimbScore() < g[j].ClimbScore() }
 
+// ParseRecord parses a record from a CSV row.
 func ParseRecord(record []string) (Record, error) {
 	if len(record) <= SrcThumbnail {
 		return Record{}, fmt.Errorf("record too short: %#v", record)
 	}
 	rank, err := strconv.Atoi(record[SrcRank])
 	if err != nil {
-		return Record{}, fmt.Errorf("unable to parse rank '%s', %s", err)
+		return Record{}, fmt.Errorf("unable to parse rank '%s', %s", record[SrcRank], err)
 	}
 	return Record{
 		ID:           record[SrcID],
@@ -218,133 +319,104 @@ func ParseRecord(record []string) (Record, error) {
 }
 
 func main() {
-	var minRatings int
+	// Parse flags and arg
+	var (
+		minRatings int
+		period     int
+		maxPeriods int
+	)
 	flag.IntVar(&minRatings, "minratings", 100, "minimum ratings required")
+	flag.IntVar(&period, "period", 7, "number of days in a period")
+	flag.IntVar(&maxPeriods, "maxperiods", 12, "maximum periods to include")
 	flag.Parse()
 	args := flag.Args()
 
 	stderr := log.New(os.Stderr, "", 0)
-	if len(args) != 2 {
-		stderr.Fatalf("Expected two CSV file arguments to compare")
+	if len(args) != 1 {
+		stderr.Fatalf("Expected bgg-ranking-historicals CSV file")
 	}
+	latest := args[0]
+
+	// Read files
+	files := []File{}
+	dir := filepath.Dir(latest)
+	timeIter, err := ParseFileDate(latest)
+	if err != nil {
+		stderr.Fatalf("Error parsing date from %s, %v", latest, err)
+	}
+	for {
+		if len(files) >= maxPeriods {
+			break
+		}
+
+		csvPath := path.Join(dir, timeIter.Format(FileDateFormat)+".csv")
+		log.Printf("Parsing %s", csvPath)
+		if _, err := os.Stat(csvPath); os.IsNotExist(err) {
+			log.Printf("Could not find file, cancelling further iteration")
+			break
+		}
+
+		f, err := ParseFile(csvPath)
+		if err != nil {
+			stderr.Fatalf("Error reading file %s, %s", latest, err)
+		}
+
+		files = append(files, f)
+		timeIter = timeIter.AddDate(0, 0, -period)
+	}
+
+	if len(files) < 2 {
+		stderr.Fatal("Parsed less than two files")
+	}
+
+	// Build and sort games array, only including games in the latest file.
+	gamesMap := map[string]Game{}
+	for _, record := range files[0].Records {
+		if record.Rank > 0 {
+			gamesMap[record.ID] = Game{
+				Records: []GameRecord{{
+					Record: record,
+					Date:   files[0].Date,
+				}},
+			}
+		}
+	}
+	for _, f := range files[1:] {
+		for _, record := range f.Records {
+			if game, ok := gamesMap[record.ID]; ok && record.Rank > 0 {
+				game.Records = append(game.Records, GameRecord{
+					Record: record,
+					Date:   f.Date,
+				})
+				gamesMap[record.ID] = game
+			}
+		}
+	}
+	games := Games{}
+	for _, g := range gamesMap {
+		if len(g.Records) > 1 {
+			usersRated, _ := strconv.Atoi(g.Records[1].UsersRated)
+			if usersRated >= minRatings {
+				games = append(games, g)
+			}
+		}
+	}
+	sort.Sort(sort.Reverse(games))
+
+	// Write header
 	w := csv.NewWriter(os.Stdout)
 	defer w.Flush()
 	if err := w.Write([]string{
 		"ID",
 		"Name",
 		"Description",
-		"Rank 1 / Rank 2",
-		"Rank 1",
-		"Rank 2",
-		"Name 1",
-		"Year 1",
-		"Average 1",
-		"Bayes average 1",
-		"Users rated 1",
-		"URL 1",
-		"Thumbnail 1",
-		"Name 2",
-		"Year 2",
-		"Average 2",
-		"Bayes average 2",
-		"Users rated 2",
-		"URL 2",
-		"Thumbnail 2",
+		"Climb ratio",
 	}); err != nil {
 		stderr.Fatalf("Error writing header, %v", err)
 	}
 
-	games := map[string]Game{}
-	maxRank := 0
-
-	// Parse old file
-	oldF, err := os.Open(args[0])
-	if err != nil {
-		stderr.Fatalf("Unable to open '%s', %s", args[0], err)
-	}
-	oldR := csv.NewReader(oldF)
-	hasReadHeader := false
-	for {
-		record, err := oldR.Read()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			stderr.Fatalf("Unable to read line from '%s', %s", args[0], err)
-		}
-		if !hasReadHeader {
-			hasReadHeader = true
-			continue
-		}
-		if len(record) <= SrcThumbnail {
-			continue
-		}
-		g := games[record[SrcID]]
-		if g.Old, err = ParseRecord(record); err != nil {
-			stderr.Fatalf("Unable to parse record, %s", err)
-		}
-		if g.Old.Rank > maxRank {
-			maxRank = g.Old.Rank
-		}
-		games[record[SrcID]] = g
-	}
-	if err := oldF.Close(); err != nil {
-		stderr.Fatalf("Unable to close '%s', %s", args[0], err)
-	}
-
-	// Parse new file
-	newF, err := os.Open(args[1])
-	if err != nil {
-		stderr.Fatalf("Unable to open '%s', %s", args[1], err)
-	}
-	newR := csv.NewReader(newF)
-	hasReadHeader = false
-	for {
-		record, err := newR.Read()
-		if err == io.EOF {
-			break
-		} else if err != nil {
-			stderr.Fatalf("Unable to read line from '%s', %s", args[1], err)
-		}
-		if !hasReadHeader {
-			hasReadHeader = true
-			continue
-		}
-		if len(record) <= SrcThumbnail {
-			continue
-		}
-		g := games[record[SrcID]]
-		if g.New, err = ParseRecord(record); err != nil {
-			stderr.Fatalf("Unable to parse record, %s", err)
-		}
-		if g.New.Rank > maxRank {
-			maxRank = g.New.Rank
-		}
-		games[record[SrcID]] = g
-	}
-	if err := newF.Close(); err != nil {
-		stderr.Fatalf("Unable to close '%s', %s", args[1], err)
-	}
-
-	// Set climb score and build games slice
-	gamesSlice := Games{}
 	for _, g := range games {
-		g.ClimbScore = g.CalcClimbScore(maxRank / 2)
-		gamesSlice = append(gamesSlice, g)
-	}
-	sort.Sort(sort.Reverse(gamesSlice))
-
-	// Output
-	oldTitle := FileTitle(args[0])
-	newTitle := FileTitle(args[1])
-	for _, g := range gamesSlice {
-		if g.Old.Rank == 0 || g.New.Rank == 0 {
-			// Ignore games which gained or lost their rank
-			continue
-		}
-		if ur, err := strconv.Atoi(g.Old.UsersRated); err != nil || ur < minRatings {
-			continue
-		}
-		if err := w.Write(g.ToCSVRecord(oldTitle, newTitle)); err != nil {
+		if err := w.Write(g.ToCSVRecord()); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
 	}
