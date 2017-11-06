@@ -255,11 +255,10 @@ func (g Game) DescriptionRow(offset int) string {
 		StrOrNA(record.Record.UsersRated),
 		g.ClimbScoreString(offset),
 	)
-	if (len(g.Records)-offset)%2 == 1 {
-		row = fmt.Sprintf("[BGCOLOR=#D8D8D8]%s[/BGCOLOR]", row)
-	}
 	if offset == 0 {
-		row = fmt.Sprintf("[b]%s[/b]", row)
+		row = fmt.Sprintf("[b][BGCOLOR=#FFFF80]%s[/BGCOLOR][/b]", row)
+	} else if (len(g.Records)-offset)%2 == 1 {
+		row = fmt.Sprintf("[BGCOLOR=#D8D8D8]%s[/BGCOLOR]", row)
 	}
 	return row
 }
