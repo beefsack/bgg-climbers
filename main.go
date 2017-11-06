@@ -222,12 +222,17 @@ var DescTableTitle = fmt.Sprintf(
 
 // Description outputs a climb score and table of historicals.
 func (g Game) Description() string {
+	lastRecord := g.Records[len(g.Records)-1]
 	return fmt.Sprintf(`[size=18][b]%s[/b][/size]
+
+[size=10]%s since %s[/size]
 [c]
 %s
 %s
 [/c]`,
 		ClimbScoreString(ClimbScore(g.Records[1].Rank, g.Records[0].Rank)),
+		ClimbScoreString(ClimbScore(lastRecord.Rank, g.Records[0].Rank)),
+		lastRecord.Date.Format(FileDateFormat),
 		DescTableTitle,
 		g.DescriptionRows(),
 	)
