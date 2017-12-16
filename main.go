@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -46,7 +47,7 @@ const (
 var (
 	RankFormat         = fmt.Sprintf("%%%ds", RankWidth)
 	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
-	BayesAverageFormat = AverageFormat
+	BayesAverageFormat = fmt.Sprintf("%%%d.3f", AverageWidth)
 	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
 	ChangeFormat       = fmt.Sprintf("%%%ds", ChangeWidth+ColorTagWidth)
 	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
@@ -124,7 +125,7 @@ type Record struct {
 	Year         string
 	Rank         int
 	Average      string
-	BayesAverage string
+	BayesAverage float64
 	UsersRated   string
 	URL          string
 	Thumbnail    string
@@ -142,10 +143,10 @@ func (r Record) RankString() string {
 // Description outputs the record rank details.
 func (r Record) Description() string {
 	return fmt.Sprintf(
-		fmt.Sprintf("%%s  %s  %s  %s  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		fmt.Sprintf("%%s  %s  %s  %v  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
 		StrOrNA(r.RankString()),
 		StrOrNA(r.Average),
-		StrOrNA(r.BayesAverage),
+		r.BayesAverage,
 		StrOrNA(r.UsersRated),
 	)
 }
@@ -157,12 +158,12 @@ type Game struct {
 
 // ClimbScore is a ratio of rank movement in this game's most recent period.
 func (g Game) ClimbScore() float64 {
-	return ClimbScore(g.Records[1].Rank, g.Records[0].Rank)
+	return ClimbScore(g.Records[1].BayesAverage, g.Records[0].BayesAverage)
 }
 
 // ClimbScore is a ratio of rank movement.
-func ClimbScore(oldRank, newRank int) float64 {
-	return float64(oldRank) / float64(newRank)
+func ClimbScore(oldBayes, newBayes float64) float64 {
+	return newBayes - oldBayes
 }
 
 // StrOrNA replaces empty strings with "N/A"
@@ -177,18 +178,18 @@ func StrOrNA(s string) string {
 func ClimbScoreString(climbScore float64) string {
 	arrow := "-"
 	color := "555555"
-	if climbScore > 1 {
+	if climbScore > 0 {
 		arrow = "↗"
 		color = "009900"
-	} else if climbScore < 1 {
+	} else if climbScore < 0 {
 		arrow = "↘"
 		color = "990000"
 	}
 	return fmt.Sprintf(
-		"[COLOR=#%s]%s %s[/COLOR]",
+		"[COLOR=#%s]%s %.3f[/COLOR]",
 		color,
 		arrow,
-		ClimbScorePercString(climbScore),
+		math.Abs(climbScore),
 	)
 }
 
@@ -230,8 +231,8 @@ func (g Game) Description() string {
 %s
 %s
 [/c]`,
-		ClimbScoreString(ClimbScore(g.Records[1].Rank, g.Records[0].Rank)),
-		ClimbScoreString(ClimbScore(lastRecord.Rank, g.Records[0].Rank)),
+		ClimbScoreString(ClimbScore(g.Records[1].BayesAverage, g.Records[0].BayesAverage)),
+		ClimbScoreString(ClimbScore(lastRecord.BayesAverage, g.Records[0].BayesAverage)),
 		lastRecord.Date.Format(FileDateFormat),
 		DescTableTitle,
 		g.DescriptionRows(),
@@ -256,7 +257,7 @@ func (g Game) DescriptionRow(offset int) string {
 		record.Date.Format(FileDateFormat),
 		StrOrNA(record.Record.RankString()),
 		StrOrNA(record.Record.Average),
-		StrOrNA(record.Record.BayesAverage),
+		record.Record.BayesAverage,
 		StrOrNA(record.Record.UsersRated),
 		g.ClimbScoreString(offset),
 	)
@@ -274,7 +275,7 @@ func (g Game) ClimbScoreString(offset int) string {
 		// Output the COLOR tag anyway for alignment purposes.
 		return "[COLOR=#000000][/COLOR]"
 	}
-	return ClimbScoreString(ClimbScore(g.Records[offset+1].Record.Rank, g.Records[offset].Record.Rank))
+	return ClimbScoreString(ClimbScore(g.Records[offset+1].Record.BayesAverage, g.Records[offset].Record.BayesAverage))
 }
 
 // ToCSVRecord outputs a CSV row for output.
@@ -283,7 +284,7 @@ func (g Game) ToCSVRecord() []string {
 		g.Records[0].Record.ID,
 		g.Records[0].Record.Name,
 		g.Description(),
-		fmt.Sprintf("%f", g.ClimbScore()),
+		fmt.Sprintf("%.3f", g.ClimbScore()),
 	}
 }
 
@@ -309,13 +310,17 @@ func ParseRecord(record []string) (Record, error) {
 	if err != nil {
 		return Record{}, fmt.Errorf("unable to parse rank '%s', %s", record[SrcRank], err)
 	}
+	bayes, err := strconv.ParseFloat(record[SrcBayesAverage], 64)
+	if err != nil {
+		return Record{}, fmt.Errorf("unable to parse bayes average '%s', %s", record[SrcBayesAverage], err)
+	}
 	return Record{
 		ID:           record[SrcID],
 		Name:         record[SrcName],
 		Year:         record[SrcYear],
 		Rank:         rank,
 		Average:      record[SrcAverage],
-		BayesAverage: record[SrcBayesAverage],
+		BayesAverage: bayes,
 		UsersRated:   record[SrcUsersRated],
 		URL:          record[SrcURL],
 		Thumbnail:    record[SrcThumbnail],
