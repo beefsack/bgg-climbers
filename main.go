@@ -36,7 +36,7 @@ const (
 	RankWidth         = 5
 	AverageWidth      = 5
 	NewAverageWidth   = AverageWidth
-	BayesAverageWidth = AverageWidth
+	BayesAverageWidth = 6
 	UsersRatedWidth   = 6
 	ChangeWidth       = 8
 	ColorTagWidth     = 23
@@ -47,8 +47,8 @@ const (
 var (
 	RankFormat         = fmt.Sprintf("%%%ds", RankWidth)
 	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
-	NewAverageFormat   = AverageFormat
-	BayesAverageFormat = AverageFormat
+	NewAverageFormat   = fmt.Sprintf("%%%ds", NewAverageWidth)
+	BayesAverageFormat = fmt.Sprintf("%%%ds", BayesAverageWidth)
 	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
 	ChangeFormat       = fmt.Sprintf("%%%ds", ChangeWidth+ColorTagWidth)
 	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
