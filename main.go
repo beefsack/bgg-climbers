@@ -36,6 +36,7 @@ const FileDateFormat = "2006-01-02"
 const (
 	RankWidth         = 5
 	AverageWidth      = 5
+	NewAverageWidth   = AverageWidth
 	BayesAverageWidth = AverageWidth
 	UsersRatedWidth   = 6
 	ChangeWidth       = 8
@@ -48,6 +49,7 @@ var (
 	RankFormat         = fmt.Sprintf("%%%ds", RankWidth)
 	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
 	BayesAverageFormat = fmt.Sprintf("%%%d.3f", AverageWidth)
+	NewAverageFormat   = AverageFormat
 	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
 	ChangeFormat       = fmt.Sprintf("%%%ds", ChangeWidth+ColorTagWidth)
 	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
@@ -143,7 +145,7 @@ func (r Record) RankString() string {
 // Description outputs the record rank details.
 func (r Record) Description() string {
 	return fmt.Sprintf(
-		fmt.Sprintf("%%s  %s  %s  %v  %s", AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		fmt.Sprintf("%%s  %s  %s  %s  %v  %s", AverageFormat, NewAverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
 		StrOrNA(r.RankString()),
 		StrOrNA(r.Average),
 		r.BayesAverage,
@@ -164,6 +166,17 @@ func (g Game) ClimbScore() float64 {
 // ClimbScore is a ratio of rank movement.
 func ClimbScore(oldBayes, newBayes float64) float64 {
 	return newBayes - oldBayes
+}
+
+func NewRatingAverage(oldRecord, newRecord Record) float64 {
+	oldRatings, _ := strconv.ParseFloat(oldRecord.UsersRated, 64)
+	oldAverage, _ := strconv.ParseFloat(oldRecord.Average, 64)
+	newRatings, _ := strconv.ParseFloat(newRecord.UsersRated, 64)
+	newAverage, _ := strconv.ParseFloat(newRecord.Average, 64)
+	if oldAverage == newAverage || oldRatings == newRatings {
+		return newAverage
+	}
+	return (newAverage*newRatings - oldAverage*oldRatings) / (newRatings - oldRatings)
 }
 
 // StrOrNA replaces empty strings with "N/A"
@@ -205,10 +218,11 @@ func ClimbScorePercString(climbScore float64) string {
 // DescTableTitle is the title row of the table.
 var DescTableTitle = fmt.Sprintf(
 	fmt.Sprintf(
-		"[BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]",
+		"[BGCOLOR=#000000][COLOR=#FFFFFF][b]%%%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%%ds  %%%ds[/b][/COLOR][/BGCOLOR]",
 		TitleLen,
 		RankWidth,
 		AverageWidth,
+		NewAverageWidth,
 		BayesAverageWidth,
 		UsersRatedWidth,
 		ChangeWidth,
@@ -216,6 +230,7 @@ var DescTableTitle = fmt.Sprintf(
 	"",
 	"Rank",
 	"Avg",
+	"New",
 	"Bay",
 	"#Rtg",
 	"Chng",
@@ -252,11 +267,18 @@ func (g Game) DescriptionRows() string {
 // DescriptionRow outputs a specific row in the Description table
 func (g Game) DescriptionRow(offset int) string {
 	record := g.Records[offset]
+
+	newAverage := ""
+	if offset < len(g.Records)-1 {
+		newAverage = fmt.Sprintf("%.2f", NewRatingAverage(g.Records[offset+1].Record, record.Record))
+	}
+
 	row := fmt.Sprintf(
-		fmt.Sprintf("%%s  %s  %s  %s  %s  %s", RankFormat, AverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		fmt.Sprintf("%%s  %s  %s  %s  %s  %s  %s", RankFormat, AverageFormat, NewAverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
 		record.Date.Format(FileDateFormat),
 		StrOrNA(record.Record.RankString()),
 		StrOrNA(record.Record.Average),
+		newAverage,
 		record.Record.BayesAverage,
 		StrOrNA(record.Record.UsersRated),
 		g.ClimbScoreString(offset),
