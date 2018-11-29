@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path"
 	"path/filepath"
@@ -175,7 +176,13 @@ func NewRatingAverage(oldRecord, newRecord Record) float64 {
 	if oldAverage == newAverage || oldRatings == newRatings {
 		return newAverage
 	}
-	return (newAverage*newRatings - oldAverage*oldRatings) / (newRatings - oldRatings)
+	return math.Max(
+		0,
+		math.Min(
+			10,
+			(newAverage*newRatings-oldAverage*oldRatings)/(newRatings-oldRatings),
+		),
+	)
 }
 
 // StrOrNA replaces empty strings with "N/A"
