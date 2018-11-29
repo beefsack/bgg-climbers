@@ -177,7 +177,7 @@ func NewRatingAverage(oldRecord, newRecord Record) float64 {
 		return newAverage
 	}
 	return math.Max(
-		0,
+		1,
 		math.Min(
 			10,
 			(newAverage*newRatings-oldAverage*oldRatings)/(newRatings-oldRatings),
