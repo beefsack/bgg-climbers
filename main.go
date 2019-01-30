@@ -431,8 +431,8 @@ func main() {
 	}
 	games := Games{}
 	for _, g := range gamesMap {
-		if len(g.Records) > 1 {
-			usersRated, _ := strconv.Atoi(g.Records[1].UsersRated)
+		if len(g.Records) > 1 { // Only include games with at least two records
+			usersRated, _ := strconv.Atoi(g.Records[0].UsersRated)
 			if usersRated >= minRatings {
 				games = append(games, g)
 			}
