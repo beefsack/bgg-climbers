@@ -32,6 +32,11 @@ const (
 // FileDateFormat is the format of the date in the file name.
 const FileDateFormat = "2006-01-02"
 
+// The minimum ratio the new ratings need to account for to output in the new
+// rating field. Eg. for a game with 95 ratings, it would require at least 5 new
+// ratings to show the field.
+const MinNewRatingRatio = 0.05
+
 // Formatting constants.
 const (
 	RankWidth         = 5
@@ -168,21 +173,30 @@ func ClimbScore(oldRank, newRank int) float64 {
 	return float64(oldRank) / float64(newRank)
 }
 
-func NewRatingAverage(oldRecord, newRecord Record) float64 {
+func NewRatingAverage(oldRecord, newRecord Record) *float64 {
 	oldRatings, _ := strconv.ParseFloat(oldRecord.UsersRated, 64)
 	oldAverage, _ := strconv.ParseFloat(oldRecord.Average, 64)
 	newRatings, _ := strconv.ParseFloat(newRecord.UsersRated, 64)
 	newAverage, _ := strconv.ParseFloat(newRecord.Average, 64)
-	if oldAverage == newAverage || oldRatings == newRatings {
-		return newAverage
+
+	// If we don't have enough new ratings, we don't show the value
+	if newRatings <= oldRatings ||
+		(newRatings-oldRatings)/newRatings < MinNewRatingRatio {
+		return nil
 	}
-	return math.Max(
+
+	if oldAverage == newAverage {
+		return &newAverage
+	}
+
+	new := math.Max(
 		1,
 		math.Min(
 			10,
 			(newAverage*newRatings-oldAverage*oldRatings)/(newRatings-oldRatings),
 		),
 	)
+	return &new
 }
 
 // StrOrNA replaces empty strings with "N/A"
@@ -274,9 +288,12 @@ func (g Game) DescriptionRows() string {
 func (g Game) DescriptionRow(offset int) string {
 	record := g.Records[offset]
 
-	newAverage := ""
+	newAverage := "-"
 	if offset < len(g.Records)-1 {
-		newAverage = fmt.Sprintf("%.2f", NewRatingAverage(g.Records[offset+1].Record, record.Record))
+		newAverageValue := NewRatingAverage(g.Records[offset+1].Record, record.Record)
+		if newAverageValue != nil {
+			newAverage = fmt.Sprintf("~%.2f", *newAverageValue)
+		}
 	}
 
 	row := fmt.Sprintf(
