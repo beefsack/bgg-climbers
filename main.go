@@ -41,7 +41,7 @@ const MinNewRatingRatio = 0.05
 const (
 	RankWidth         = 5
 	AverageWidth      = 5
-	NewAverageWidth   = AverageWidth
+	NewAverageWidth   = 6
 	BayesAverageWidth = 6
 	UsersRatedWidth   = 6
 	ChangeWidth       = 8
