@@ -252,10 +252,10 @@ func ClimbScoreString(climbScore float64, mode Mode) string {
 	color := "555555"
 	pivot := ModePivot[mode]
 	if climbScore > pivot {
-		arrow = "↗"
+		arrow = "↑"
 		color = "009900"
 	} else if climbScore < pivot {
-		arrow = "↘"
+		arrow = "↓"
 		color = "990000"
 	}
 	return fmt.Sprintf(
