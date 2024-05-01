@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,21 @@ const (
 	SrcURL
 	SrcThumbnail
 )
+
+type Mode = string
+
+// Ranking modes
+const (
+	ModeRank  Mode = "rank"
+	ModeBayes Mode = "bayes"
+)
+
+var Modes = []Mode{ModeRank, ModeBayes}
+
+var ModePivot = map[Mode]float64{
+	ModeRank:  1,
+	ModeBayes: 0,
+}
 
 // FileDateFormat is the format of the date in the file name.
 const FileDateFormat = "2006-01-02"
@@ -54,7 +70,7 @@ var (
 	RankFormat         = fmt.Sprintf("%%%ds", RankWidth)
 	AverageFormat      = fmt.Sprintf("%%%ds", AverageWidth)
 	NewAverageFormat   = fmt.Sprintf("%%%ds", NewAverageWidth)
-	BayesAverageFormat = fmt.Sprintf("%%%ds", BayesAverageWidth)
+	BayesAverageFormat = fmt.Sprintf("%%%d.3f", BayesAverageWidth)
 	UsersRatedFormat   = fmt.Sprintf("%%%ds", UsersRatedWidth)
 	ChangeFormat       = fmt.Sprintf("%%%ds", ChangeWidth+ColorTagWidth)
 	UnrankedText       = fmt.Sprintf(fmt.Sprintf("%%%ds", RankWidth), EmptyStr)
@@ -132,7 +148,7 @@ type Record struct {
 	Year         string
 	Rank         int
 	Average      string
-	BayesAverage string
+	BayesAverage float64
 	UsersRated   string
 	URL          string
 	Thumbnail    string
@@ -150,10 +166,10 @@ func (r Record) RankString() string {
 // Description outputs the record rank details.
 func (r Record) Description() string {
 	return fmt.Sprintf(
-		fmt.Sprintf("%%s  %s  %s  %s  %s  %s", AverageFormat, NewAverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
+		fmt.Sprintf("%%s  %s  %s  %s  %v  %s", AverageFormat, NewAverageFormat, BayesAverageFormat, UsersRatedFormat, ChangeFormat),
 		StrOrNA(r.RankString()),
 		StrOrNA(r.Average),
-		StrOrNA(r.BayesAverage),
+		r.BayesAverage,
 		StrOrNA(r.UsersRated),
 	)
 }
@@ -164,13 +180,36 @@ type Game struct {
 }
 
 // ClimbScore is a ratio of rank movement in this game's most recent period.
-func (g Game) ClimbScore() float64 {
-	return ClimbScore(g.Records[1].Rank, g.Records[0].Rank)
+func (g Game) ClimbScore(mode Mode) float64 {
+	return ClimbScore(g.Records[1], g.Records[0], mode)
 }
 
-// ClimbScore is a ratio of rank movement.
-func ClimbScore(oldRank, newRank int) float64 {
+func ClimbScore(old, new GameRecord, mode Mode) float64 {
+	switch mode {
+	case ModeRank:
+		return ClimbScoreRank(old.Rank, new.Rank)
+	case ModeBayes:
+		return ClimbScoreBayes(old.BayesAverage, new.BayesAverage)
+	}
+	panic("Invalid mode")
+}
+
+func (g Game) ClimbScoreRank() float64 {
+	return ClimbScoreRank(g.Records[1].Rank, g.Records[0].Rank)
+}
+
+// ClimbScoreRank is a ratio of rank movement.
+func ClimbScoreRank(oldRank, newRank int) float64 {
 	return float64(oldRank) / float64(newRank)
+}
+
+func (g Game) ClimbScoreBayes() float64 {
+	return ClimbScoreBayes(g.Records[1].BayesAverage, g.Records[0].BayesAverage)
+}
+
+// ClimbScoreBayes is the difference between two averages.
+func ClimbScoreBayes(oldBayes, newBayes float64) float64 {
+	return newBayes - oldBayes
 }
 
 func NewRatingAverage(oldRecord, newRecord Record) *float64 {
@@ -208,13 +247,14 @@ func StrOrNA(s string) string {
 }
 
 // ClimbScoreString is the climb score as a percentage with color and an arrow.
-func ClimbScoreString(climbScore float64) string {
+func ClimbScoreString(climbScore float64, mode Mode) string {
 	arrow := "-"
 	color := "555555"
-	if climbScore > 1 {
+	pivot := ModePivot[mode]
+	if climbScore > pivot {
 		arrow = "↗"
 		color = "009900"
-	} else if climbScore < 1 {
+	} else if climbScore < pivot {
 		arrow = "↘"
 		color = "990000"
 	}
@@ -222,8 +262,18 @@ func ClimbScoreString(climbScore float64) string {
 		"[COLOR=#%s]%s %s[/COLOR]",
 		color,
 		arrow,
-		ClimbScorePercString(climbScore),
+		ClimbScoreFormatted(climbScore, mode),
 	)
+}
+
+func ClimbScoreFormatted(climbScore float64, mode Mode) string {
+	switch mode {
+	case ModeRank:
+		return ClimbScorePercString(climbScore)
+	case ModeBayes:
+		return ClimbScoreAbsString(climbScore)
+	}
+	panic("invalid mode")
 }
 
 // ClimbScorePercString represents the climb ratio as a percentage.
@@ -233,6 +283,11 @@ func ClimbScorePercString(climbScore float64) string {
 		perc = 1 / perc
 	}
 	return fmt.Sprintf("%.2f%%", (1-perc)*100)
+}
+
+// ClimbScoreAbsString represents the climb difference.
+func ClimbScoreAbsString(climbScore float64) string {
+	return fmt.Sprintf("%.3f", math.Abs(climbScore))
 }
 
 // DescTableTitle is the title row of the table.
@@ -257,7 +312,7 @@ var DescTableTitle = fmt.Sprintf(
 )
 
 // Description outputs a climb score and table of historicals.
-func (g Game) Description() string {
+func (g Game) Description(mode Mode) string {
 	lastRecord := g.Records[len(g.Records)-1]
 	return fmt.Sprintf(`[size=18][b]%s[/b][/size]
 
@@ -266,26 +321,26 @@ func (g Game) Description() string {
 %s
 %s
 [/c]`,
-		ClimbScoreString(ClimbScore(g.Records[1].Rank, g.Records[0].Rank)),
-		ClimbScoreString(ClimbScore(lastRecord.Rank, g.Records[0].Rank)),
+		ClimbScoreString(ClimbScore(g.Records[1], g.Records[0], mode), mode),
+		ClimbScoreString(ClimbScore(lastRecord, g.Records[0], mode), mode),
 		lastRecord.Date.Format(FileDateFormat),
 		DescTableTitle,
-		g.DescriptionRows(),
+		g.DescriptionRows(mode),
 	)
 }
 
 // DescriptionRows outputs the rows in the Description table
-func (g Game) DescriptionRows() string {
+func (g Game) DescriptionRows(mode Mode) string {
 	l := len(g.Records)
 	lines := make([]string, l)
 	for i := 0; i < l; i++ {
-		lines[i] = g.DescriptionRow(l - i - 1)
+		lines[i] = g.DescriptionRow(l-i-1, mode)
 	}
 	return strings.Join(lines, "\n")
 }
 
 // DescriptionRow outputs a specific row in the Description table
-func (g Game) DescriptionRow(offset int) string {
+func (g Game) DescriptionRow(offset int, mode Mode) string {
 	record := g.Records[offset]
 
 	newAverage := "-"
@@ -302,9 +357,9 @@ func (g Game) DescriptionRow(offset int) string {
 		StrOrNA(record.Record.RankString()),
 		StrOrNA(record.Record.Average),
 		newAverage,
-		StrOrNA(record.Record.BayesAverage),
+		record.Record.BayesAverage,
 		StrOrNA(record.Record.UsersRated),
-		g.ClimbScoreString(offset),
+		g.ClimbScoreString(offset, mode),
 	)
 	if offset == 0 {
 		row = fmt.Sprintf("[b][BGCOLOR=#FFFF80]%s[/BGCOLOR][/b]", row)
@@ -315,21 +370,21 @@ func (g Game) DescriptionRow(offset int) string {
 }
 
 // ClimbScoreString generates the climb score for an offset and outputs it.
-func (g Game) ClimbScoreString(offset int) string {
+func (g Game) ClimbScoreString(offset int, mode Mode) string {
 	if offset == len(g.Records)-1 {
 		// Output the COLOR tag anyway for alignment purposes.
 		return "[COLOR=#000000][/COLOR]"
 	}
-	return ClimbScoreString(ClimbScore(g.Records[offset+1].Record.Rank, g.Records[offset].Record.Rank))
+	return ClimbScoreString(ClimbScore(g.Records[offset+1], g.Records[offset], mode), mode)
 }
 
 // ToCSVRecord outputs a CSV row for output.
-func (g Game) ToCSVRecord() []string {
+func (g Game) ToCSVRecord(mode Mode) []string {
 	return []string{
 		g.Records[0].Record.ID,
 		g.Records[0].Record.Name,
-		g.Description(),
-		fmt.Sprintf("%f", g.ClimbScore()),
+		g.Description(mode),
+		fmt.Sprintf("%f", g.ClimbScore(mode)),
 	}
 }
 
@@ -342,9 +397,18 @@ type GameRecord struct {
 // Games is a sortable collection of Game structs.
 type Games []Game
 
-func (g Games) Len() int           { return len(g) }
-func (g Games) Swap(i, j int)      { g[i], g[j] = g[j], g[i] }
-func (g Games) Less(i, j int) bool { return g[i].ClimbScore() < g[j].ClimbScore() }
+func (g Games) Len() int      { return len(g) }
+func (g Games) Swap(i, j int) { g[i], g[j] = g[j], g[i] }
+
+type ByRank struct{ Games }
+
+func (b ByRank) Less(i, j int) bool { return b.Games[i].ClimbScoreRank() < b.Games[j].ClimbScoreRank() }
+
+type ByBayes struct{ Games }
+
+func (b ByBayes) Less(i, j int) bool {
+	return b.Games[i].ClimbScoreBayes() < b.Games[j].ClimbScoreBayes()
+}
 
 // ParseRecord parses a record from a CSV row.
 func ParseRecord(record []string) (Record, error) {
@@ -355,13 +419,17 @@ func ParseRecord(record []string) (Record, error) {
 	if err != nil {
 		return Record{}, fmt.Errorf("unable to parse rank '%s', %s", record[SrcRank], err)
 	}
+	bayes, err := strconv.ParseFloat(record[SrcBayesAverage], 64)
+	if err != nil {
+		return Record{}, fmt.Errorf("unable to parse bayes average '%s', %s", record[SrcBayesAverage], err)
+	}
 	return Record{
 		ID:           record[SrcID],
 		Name:         record[SrcName],
 		Year:         record[SrcYear],
 		Rank:         rank,
 		Average:      record[SrcAverage],
-		BayesAverage: record[SrcBayesAverage],
+		BayesAverage: bayes,
 		UsersRated:   record[SrcUsersRated],
 		URL:          record[SrcURL],
 		Thumbnail:    record[SrcThumbnail],
@@ -374,14 +442,31 @@ func main() {
 		minRatings int
 		period     int
 		maxPeriods int
+		mode       Mode
 	)
-	flag.IntVar(&minRatings, "minratings", 100, "minimum ratings required")
+
+	stderr := log.New(os.Stderr, "", 0)
+
+	flag.IntVar(&minRatings, "minratings", -1, "minimum ratings required, -1 will trigger the mode specific default (rank=100, bayes=0)")
 	flag.IntVar(&period, "period", 7, "number of days in a period")
 	flag.IntVar(&maxPeriods, "maxperiods", 12, "maximum periods to include")
+	flag.StringVar(&mode, "mode", ModeRank, fmt.Sprintf("mode for ranking: %s", strings.Join(Modes, ", ")))
 	flag.Parse()
 	args := flag.Args()
 
-	stderr := log.New(os.Stderr, "", 0)
+	if slices.Index(Modes, mode) == -1 {
+		stderr.Fatalf("Invalid mode %s, expected one of %s", mode, strings.Join(Modes, ", "))
+	}
+
+	if minRatings == -1 {
+		switch mode {
+		case ModeRank:
+			minRatings = 100
+		case ModeBayes:
+			minRatings = 0
+		}
+	}
+
 	if len(args) != 1 {
 		stderr.Fatalf("Expected bgg-ranking-historicals CSV file")
 	}
@@ -451,7 +536,14 @@ func main() {
 			}
 		}
 	}
-	sort.Sort(sort.Reverse(games))
+	var sortBy sort.Interface
+	switch mode {
+	case ModeRank:
+		sortBy = ByRank{games}
+	case ModeBayes:
+		sortBy = ByBayes{games}
+	}
+	sort.Sort(sort.Reverse(sortBy))
 
 	// Write header
 	w := csv.NewWriter(os.Stdout)
@@ -466,7 +558,7 @@ func main() {
 	}
 
 	for _, g := range games {
-		if err := w.Write(g.ToCSVRecord()); err != nil {
+		if err := w.Write(g.ToCSVRecord(mode)); err != nil {
 			stderr.Fatalf("Unable to write CSV row, %s", err)
 		}
 	}
