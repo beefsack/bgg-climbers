@@ -45,6 +45,22 @@ var ModePivot = map[Mode]float64{
 	ModeBayes: 0,
 }
 
+type ArrowType = uint
+
+const (
+	ArrowTypeSingle ArrowType = iota
+	ArrowTypeWide
+)
+
+type Arrow struct {
+	Up, Down string
+}
+
+var Arrows = map[ArrowType]Arrow{
+	ArrowTypeSingle: {"↑", "↓"},
+	ArrowTypeWide:   {"↗", "↘"},
+}
+
 // FileDateFormat is the format of the date in the file name.
 const FileDateFormat = "2006-01-02"
 
@@ -247,15 +263,15 @@ func StrOrNA(s string) string {
 }
 
 // ClimbScoreString is the climb score as a percentage with color and an arrow.
-func ClimbScoreString(climbScore float64, mode Mode) string {
+func ClimbScoreString(climbScore float64, mode Mode, arrowType ArrowType) string {
 	arrow := "-"
 	color := "555555"
 	pivot := ModePivot[mode]
 	if climbScore > pivot {
-		arrow = "↗"
+		arrow = Arrows[arrowType].Up
 		color = "009900"
 	} else if climbScore < pivot {
-		arrow = "↘"
+		arrow = Arrows[arrowType].Down
 		color = "990000"
 	}
 	return fmt.Sprintf(
@@ -321,8 +337,8 @@ func (g Game) Description(mode Mode) string {
 %s
 %s
 [/c]`,
-		ClimbScoreString(ClimbScore(g.Records[1], g.Records[0], mode), mode),
-		ClimbScoreString(ClimbScore(lastRecord, g.Records[0], mode), mode),
+		ClimbScoreString(ClimbScore(g.Records[1], g.Records[0], mode), mode, ArrowTypeWide),
+		ClimbScoreString(ClimbScore(lastRecord, g.Records[0], mode), mode, ArrowTypeWide),
 		lastRecord.Date.Format(FileDateFormat),
 		DescTableTitle,
 		g.DescriptionRows(mode),
@@ -375,7 +391,7 @@ func (g Game) ClimbScoreString(offset int, mode Mode) string {
 		// Output the COLOR tag anyway for alignment purposes.
 		return "[COLOR=#000000][/COLOR]"
 	}
-	return ClimbScoreString(ClimbScore(g.Records[offset+1], g.Records[offset], mode), mode)
+	return ClimbScoreString(ClimbScore(g.Records[offset+1], g.Records[offset], mode), mode, ArrowTypeSingle)
 }
 
 // ToCSVRecord outputs a CSV row for output.
